@@ -1,3 +1,11 @@
 .pids/
 .logs/
 .github/
+
+# Local build outputs
+/agent
+/control
+/seeder
+*.exe
+*.out
+*.test
