@@ -1,0 +1,21 @@
+graph TB
+
+Client[Client]
+
+Control[Control Server]
+
+Agents[Execution Agents]
+
+Postgres[(PostgreSQL\nAuthoritative State)]
+
+DHT[(DHT Overlay\nDiscovery Metadata)]
+
+Client -->|Submit Task| Control
+
+Control -->|Persist Task State| Postgres
+Control -->|Lease Arbitration| Postgres
+
+Control -->|Publish Metadata| DHT
+
+Agents -->|Discover Tasks| DHT
+Agents -->|TryClaim / Heartbeat / Finish| Control

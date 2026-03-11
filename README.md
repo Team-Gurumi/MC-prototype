@@ -6,11 +6,27 @@ Mutual Cloud is a decentralized orchestration framework for distributed task exe
 This repository is the cleaned prototype layout used to reflect the architecture described in the research paper. Experimental artifacts and evaluation code have been removed. The remaining code focuses on the runtime prototype only.
 
 ## Architecture Overview
+![Mutual Cloud Architecture](docs/architecture.png)
+
+```mermaid
+graph TD
+
+Client[Client] -->|Submit task| Control[Control Server]
+
+Control -->|Persist task state| Postgres[(PostgreSQL<br/>authoritative)]
+Control -->|Lease arbitration| Postgres[(PostgreSQL<br/>authoritative)]
+Control -->|Publish metadata| DHT[DHT Overlay<br/>discovery]
+
+Agent[Execution Agents] -.->|Task discovery| DHT
+Agent -->|Lease claim| Control
+Agent -->|Heartbeat / Finish| Control
+```
+
 Mutual Cloud separates coordination responsibilities across a small set of components.
 
 - The control server accepts task submissions, persists job state, arbitrates leases, and collects completion results.
 - Execution agents discover published tasks through DHT metadata, attempt lease acquisition, execute work, and report completion.
-- The DHT distributes task metadata and task advertisements so agents can discover work without a centralized scheduler loop.
+- The DHT distributes task metadata, task indexes, manifests, and task advertisements so agents can discover work without a centralized scheduler loop.
 - Lease ownership ensures that only one valid executor owns a task at a time.
 - Heartbeats renew lease TTLs while a task is still running.
 - If heartbeats stop, the lease expires and the task can be reassigned to another agent.
@@ -19,7 +35,7 @@ Mutual Cloud separates coordination responsibilities across a small set of compo
 
 ### Control Server
 - Publishes task metadata and task state into the DHT.
-- Stores authoritative lease and completion state in PostgreSQL.
+- Stores authoritative lease and completion state in PostgreSQL. Lease arbitration is performed using PostgreSQL transactions to ensure that only one valid executor owns a task at a time.
 - Arbitrates lease acquisition and heartbeat renewal.
 - Collects task completion and updates final status.
 
@@ -45,6 +61,33 @@ Mutual Cloud separates coordination responsibilities across a small set of compo
 - Expired tasks are re-queued and become discoverable again.
 
 ## Execution Workflow
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Control as Control Server
+    participant Postgres as PostgreSQL
+    participant DHT as DHT Overlay
+    participant Agent
+
+    Client->>Control: Submit task
+    Control->>Postgres: Persist task state
+    Control->>DHT: Publish metadata
+    Agent-->>DHT: Discover task
+    Agent->>Control: TryClaim(TaskID)
+    Control->>Postgres: Lease arbitration (CAS)
+    Postgres-->>Control: Claim granted
+    Control-->>Agent: Claim granted
+
+    loop Execution
+        Agent->>Control: Heartbeat
+        Control->>Postgres: Renew lease TTL
+    end
+
+    Agent->>Control: Finish(Result)
+    Control->>Postgres: Finalize state
+    Control->>DHT: Update status
+```
+
 The runtime follows this sequence:
 
 1. A task is published to the control server.
@@ -56,6 +99,26 @@ The runtime follows this sequence:
 7. The control server marks the task finished and removes the active lease.
 
 ## Failure Recovery Mechanism
+```mermaid
+sequenceDiagram
+    participant AgentA
+    participant AgentB
+    participant Control
+    participant DB
+
+    AgentA->>Control: Heartbeat
+    Control->>DB: Renew lease TTL
+    Note over AgentA: Agent A crashes
+    Note over AgentA,Control: Heartbeats stop
+    Control->>DB: Scan for expired leases (requeueLoop)
+    DB-->>Control: Task lease expired
+    Control->>DB: Requeue task
+    AgentB->>Control: TryClaim
+    Control->>DB: Lease arbitration
+    DB-->>Control: Claim granted
+    Control-->>AgentB: Claim granted
+```
+
 Failure recovery is based on lease expiration.
 
 - Each claimed task has a bounded lease TTL.
@@ -66,12 +129,48 @@ Failure recovery is based on lease expiration.
 
 This design avoids leader-election-based failover in the execution path and keeps reassignment logic simple and explicit.
 
+## Mapping to Paper Architecture
+The research paper describes three logical roles:
+
+- Control Server
+- Execution Agent
+- Management Agent
+
+In the prototype implementation, the responsibilities of the Management Agent are implemented inside the control server for simplicity.
+
+| Paper Role | Implementation |
+|---|---|
+| Control Server | `cmd/control` |
+| Execution Agent | `cmd/agent` |
+| Management Agent | control server runtime + `internal/lease` |
+
+## System Properties
+Mutual Cloud provides the following guarantees:
+
+- At-most-one active executor per task via lease arbitration.
+- Automatic task recovery through lease expiration.
+- Decentralized task discovery using DHT metadata and task indexes.
+- Fault tolerance without centralized scheduler dispatch loops.
+
 ## Installation
 Prerequisites:
 
 - Go
 - PostgreSQL
 - Docker
+
+### Example PostgreSQL setup (Docker)
+
+```bash
+docker run -d \
+  --name mc-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=mc \
+  -p 5432:5432 \
+  postgres:15
+```
+
+This example runs a local PostgreSQL instance suitable for development and prototype testing.
 
 Install dependencies and build the binaries:
 
@@ -153,7 +252,7 @@ go build ./cmd/agent
 With this layout, multiple agents can attach to the same control server while discovering and competing for work through shared DHT metadata and lease arbitration.
 
 ## Repository Layout
-```text
+```mermaid
 cmd/
   control/    control server entrypoint
   agent/      execution agent entrypoint
