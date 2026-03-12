@@ -13,8 +13,8 @@ graph TD
 
 Client[Client] -->|Submit task| Control[Control Server]
 
-Control -->|Persist task state| Postgres[(PostgreSQL<br/>authoritative)]
-Control -->|Lease arbitration| Postgres[(PostgreSQL<br/>authoritative)]
+Control -->|Persist task state| ManagementAgent[Management Agent]
+Control -->|Lease arbitration| ManagementAgent
 Control -->|Publish metadata| DHT[DHT Overlay<br/>discovery]
 
 Agent[Execution Agents] -.->|Task discovery| DHT
@@ -35,7 +35,7 @@ Mutual Cloud separates coordination responsibilities across a small set of compo
 
 ### Control Server
 - Publishes task metadata and task state into the DHT.
-- Stores authoritative lease and completion state in PostgreSQL. Lease arbitration is performed using PostgreSQL transactions to ensure that only one valid executor owns a task at a time.
+- Stores authoritative lease and completion state in Management Agent. Lease arbitration is performed using transaction operations to ensure that only one valid executor owns a task at a time.
 - Arbitrates lease acquisition and heartbeat renewal.
 - Collects task completion and updates final status.
 
@@ -65,26 +65,26 @@ Mutual Cloud separates coordination responsibilities across a small set of compo
 sequenceDiagram
     participant Client
     participant Control as Control Server
-    participant Postgres as PostgreSQL
+    participant ManagementAgent as Management Agent
     participant DHT as DHT Overlay
     participant Agent
 
     Client->>Control: Submit task
-    Control->>Postgres: Persist task state
+    Control->>ManagementAgent: Persist task state
     Control->>DHT: Publish metadata
     Agent-->>DHT: Discover task
     Agent->>Control: TryClaim(TaskID)
-    Control->>Postgres: Lease arbitration (CAS)
-    Postgres-->>Control: Claim granted
+    Control->>ManagementAgent: Lease arbitration (CAS)
+    ManagementAgent-->>Control: Claim granted
     Control-->>Agent: Claim granted
 
     loop Execution
         Agent->>Control: Heartbeat
-        Control->>Postgres: Renew lease TTL
+        Control->>ManagementAgent: Renew lease TTL
     end
 
     Agent->>Control: Finish(Result)
-    Control->>Postgres: Finalize state
+    Control->>ManagementAgent: Finalize state
     Control->>DHT: Update status
 ```
 
@@ -104,18 +104,18 @@ sequenceDiagram
     participant AgentA
     participant AgentB
     participant Control
-    participant DB
+    participant ManagementAgent
 
     AgentA->>Control: Heartbeat
-    Control->>DB: Renew lease TTL
+    Control->>ManagementAgent: Renew lease TTL
     Note over AgentA: Agent A crashes
     Note over AgentA,Control: Heartbeats stop
-    Control->>DB: Scan for expired leases (requeueLoop)
-    DB-->>Control: Task lease expired
-    Control->>DB: Requeue task
+    Control->>ManagementAgent: Scan for expired leases (requeueLoop)
+    ManagementAgent-->>Control: Task lease expired
+    Control->>ManagementAgent: Requeue task
     AgentB->>Control: TryClaim
-    Control->>DB: Lease arbitration
-    DB-->>Control: Claim granted
+    Control->>ManagementAgent: Lease arbitration
+    ManagementAgent-->>Control: Claim granted
     Control-->>AgentB: Claim granted
 ```
 
@@ -156,21 +156,8 @@ Mutual Cloud provides the following guarantees:
 Prerequisites:
 
 - Go
-- PostgreSQL
-- Docker
-
-### Example PostgreSQL setup (Docker)
-
-```bash
-docker run -d \
-  --name mc-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=mc \
-  -p 5432:5432 \
-  postgres:15
-```
-
-This example runs a local PostgreSQL instance suitable for development and prototype testing.
+- A state storage backend
+- Docker (optional)
 
 Install dependencies and build the binaries:
 
@@ -182,10 +169,10 @@ go build ./cmd/seeder
 ```
 
 ## Running the Control Server
-Set the PostgreSQL DSN and start the control server:
+Set the state backend DSN and start the control server:
 
 ```bash
-export MC_DB_DSN='postgres://user:password@host:5432/dbname?sslmode=disable'
+export MC_DB_DSN='<STATE_BACKEND_DSN>'
 go build ./cmd/control
 ./control
 ```
@@ -223,7 +210,7 @@ One control node and multiple agent nodes can share the same namespace and boots
 Control node:
 
 ```bash
-export MC_DB_DSN='postgres://user:password@control-host:5432/mc?sslmode=disable'
+export MC_DB_DSN='<STATE_BACKEND_DSN>'
 go build ./cmd/control
 ./control --ns mc
 ```
@@ -260,7 +247,7 @@ cmd/
 
 internal/
   task/       task metadata, indexing, task state, lease keys
-  lease/      lease store and PostgreSQL-backed arbitration
+  lease/      lease store and authoritative state management
   dht/        DHT node and JSON storage helpers
   heartbeat/  heartbeat-related constants
 

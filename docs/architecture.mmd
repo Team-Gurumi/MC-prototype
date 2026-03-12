@@ -6,14 +6,14 @@ Control[Control Server]
 
 Agents[Execution Agents]
 
-Postgres[(PostgreSQL\nAuthoritative State)]
+ManagementAgent[Management Agent]
 
 DHT[(DHT Overlay\nDiscovery Metadata)]
 
 Client -->|Submit Task| Control
 
-Control -->|Persist Task State| Postgres
-Control -->|Lease Arbitration| Postgres
+Control -->|Persist Task State| ManagementAgent
+Control -->|Lease Arbitration| ManagementAgent
 
 Control -->|Publish Metadata| DHT
 
