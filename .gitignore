@@ -6,6 +6,7 @@
 /agent
 /control
 /seeder
+/work/
 *.exe
 *.out
 *.test
