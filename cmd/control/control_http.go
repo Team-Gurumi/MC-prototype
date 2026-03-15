@@ -5,20 +5,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"errors"
-	"strconv"
-	"net/http"
-	"os"
-	"strings"
-	"time"
-	"log"
-	mrand "math/rand"
+	"fmt"
 	dhtnode "github.com/Team-Gurumi/MC/internal/dht"
 	lease "github.com/Team-Gurumi/MC/internal/lease"
 	"github.com/Team-Gurumi/MC/internal/task"
 	peer "github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
+	"log"
+	mrand "math/rand"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type providerDTO struct {
@@ -154,7 +154,7 @@ func finishHandler(d *dhtnode.Node, store lease.Store, ns string) http.HandlerFu
 		st.Version++
 		_ = d.PutJSON(task.KeyState(id), st)
 		_ = d.DelJSON(task.KeyLease(id))
-_ = d.DelJSON(keyTaskAd(ns, id))      // ad/<ns>/task/<id>
+		_ = d.DelJSON(keyTaskAd(ns, id))        // ad/<ns>/task/<id>
 		_ = d.DelJSON(keyP2PManifestMirror(id)) // p2p/<id>/manifest
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -176,7 +176,7 @@ type taskAd struct {
 	JobID     string    `json:"job_id"`
 	Namespace string    `json:"ns,omitempty"`
 	Topic     string    `json:"topic,omitempty"`
-	DemandURL string    `json:"demand_url,omitempty"` 
+	DemandURL string    `json:"demand_url,omitempty"`
 	Exp       time.Time `json:"exp"`
 	Sig       string    `json:"sig,omitempty"`
 }
@@ -187,11 +187,11 @@ type manifestMirror struct {
 
 // p2p/<id>/manifest 미러: P2P 좌표만 짧게
 type manifestAd struct {
-	RootCID    string         `json:"root_cid"`
+	RootCID    string          `json:"root_cid"`
 	Providers  []task.Provider `json:"providers"`
-	Rendezvous string         `json:"rendezvous,omitempty"`
-	Transports []string       `json:"transports,omitempty"`
-	Exp        time.Time      `json:"exp"`
+	Rendezvous string          `json:"rendezvous,omitempty"`
+	Transports []string        `json:"transports,omitempty"`
+	Exp        time.Time       `json:"exp"`
 }
 
 func getNamespace() string {
@@ -245,6 +245,7 @@ func addToIndex(d *dhtnode.Node, ns, id string) error {
 
 	return d.PutJSON(key, idx)
 }
+
 // ===== /api/tasks =====
 
 type CreateTaskReq struct {
@@ -266,13 +267,13 @@ func debugLeaseHandler(d *dhtnode.Node, ns string) http.HandlerFunc {
 		var le task.Lease
 		_ = d.GetJSON(task.KeyLease(id), &le, 2*time.Second)
 		writeJSON(w, 200, map[string]any{
-			"id":           id,
-			"status":       st.Status,
-			"owner":        st.AssignedTo,
-			"lease_owner":  le.Owner,
+			"id":            id,
+			"status":        st.Status,
+			"owner":         st.AssignedTo,
+			"lease_owner":   le.Owner,
 			"lease_expires": le.Expires,
-			"lease_ver":    le.Version,
-			"updated_at":   st.UpdatedAt,
+			"lease_ver":     le.Version,
+			"updated_at":    st.UpdatedAt,
 		})
 	}
 }
@@ -432,17 +433,16 @@ func manifestHandler(d *dhtnode.Node, store lease.Store, enqueue func(string)) h
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		
+
 		// allow noop manifest: root_cid == "noop" and no providers
-       if !(in.RootCID == "noop" && len(in.Providers) == 0) {
-           for i, pv := range in.Providers {
-               if err := validateProvider(pv); err != nil {
-                   http.Error(w, fmt.Sprintf("provider[%d]: %v", i, err), http.StatusBadRequest)
-                   return
-               }
-           }
-       }
-		
+		if !(in.RootCID == "noop" && len(in.Providers) == 0) {
+			for i, pv := range in.Providers {
+				if err := validateProvider(pv); err != nil {
+					http.Error(w, fmt.Sprintf("provider[%d]: %v", i, err), http.StatusBadRequest)
+					return
+				}
+			}
+		}
 
 		if in.UpdatedAt.IsZero() {
 			in.UpdatedAt = time.Now().UTC()
@@ -544,24 +544,24 @@ func tryClaimHandler(d *dhtnode.Node, store lease.Store, ns string) http.Handler
 		}
 		ttl := ttlOrDefault(in.TTLSec)
 
-		lease, err := store.TryClaim(r.Context(), id, in.AgentID, ttl)
-if err != nil {
-    // manifest가 없다고 거절하지 말고 계속 진행
-    if errors.Is(err, lease.ErrLeaseConflict) {
-        _ = json.NewEncoder(w).Encode(leaseOut{OK: false})
-        return
-    }
-    if errors.Is(err, lease.ErrJobNotFound) {
-        http.Error(w, "not found", http.StatusNotFound)
-        return
-    }
+		claimedLease, err := store.TryClaim(r.Context(), id, in.AgentID, ttl)
+		if err != nil {
+			// manifest가 없다고 거절하지 말고 계속 진행
+			if errors.Is(err, lease.ErrLeaseConflict) {
+				_ = json.NewEncoder(w).Encode(leaseOut{OK: false})
+				return
+			}
+			if errors.Is(err, lease.ErrJobNotFound) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 
-    // ErrNoManifest는 무시 (noop manifest 허용)
-    if !errors.Is(err, lease.ErrNoManifest) {
-        http.Error(w, "store error: "+err.Error(), http.StatusInternalServerError)
-        return
-    }
-}
+			// ErrNoManifest는 무시 (noop manifest 허용)
+			if !errors.Is(err, lease.ErrNoManifest) {
+				http.Error(w, "store error: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 
 		// DHT 상태도 맞춰주기
 		now := time.Now().UTC()
@@ -578,18 +578,18 @@ if err != nil {
 		_ = d.PutJSON(task.KeyState(id), st)
 		_ = d.PutJSON(task.KeyLease(id), task.Lease{
 			Owner:   in.AgentID,
-			Expires: lease.ExpireAt,
-			Version: int64(lease.FencingToken),
+			Expires: claimedLease.ExpireAt,
+			Version: int64(claimedLease.FencingToken),
 		})
-log.Printf(`{"event":"reassigned","timestamp":"%s","job_id":"%s","agent_id":"%s"}`,
-    time.Now().UTC().Format(time.RFC3339Nano), id, in.AgentID)
+		log.Printf(`{"event":"reassigned","timestamp":"%s","job_id":"%s","agent_id":"%s"}`,
+			time.Now().UTC().Format(time.RFC3339Nano), id, in.AgentID)
 
 		_ = json.NewEncoder(w).Encode(leaseOut{
 			OK: true,
 			Lease: task.Lease{
 				Owner:   in.AgentID,
-				Expires: lease.ExpireAt,
-				Version: int64(lease.FencingToken),
+				Expires: claimedLease.ExpireAt,
+				Version: int64(claimedLease.FencingToken),
 			},
 		})
 	}
@@ -789,15 +789,15 @@ func mountHTTP(d *dhtnode.Node, store lease.Store, ns string, enqueue func(strin
 		}
 		http.NotFound(w, r)
 	}))
-mux.Handle("/api/jobs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    if strings.HasSuffix(r.URL.Path, "/finish") {
-        finishHandler(d, store, ns).ServeHTTP(w, r)
-        return
-    }
-    http.NotFound(w, r)
-}))
- mux.Handle("/internal/tasks/",   debugLeaseHandler(d, ns))
-    mux.Handle("/internal/requeue/", forceRequeueHandler(d, ns, enqueue))
+	mux.Handle("/api/jobs/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/finish") {
+			finishHandler(d, store, ns).ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	mux.Handle("/internal/tasks/", debugLeaseHandler(d, ns))
+	mux.Handle("/internal/requeue/", forceRequeueHandler(d, ns, enqueue))
 	return mux
 }
 
@@ -893,7 +893,7 @@ func forceRequeueHandler(d *dhtnode.Node, ns string, enqueue func(string)) http.
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		   id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/internal/requeue/"), "/force-requeue")
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/internal/requeue/"), "/force-requeue")
 
 		now := time.Now().UTC()
 		var st task.TaskState
@@ -954,34 +954,33 @@ func validateTransports(ts []string) error {
 }
 
 func announceAds(ctx context.Context, d *dhtnode.Node, ns, id string, man *task.Manifest, ttl time.Duration) {
-    exp := time.Now().UTC().Add(ttl)
+	exp := time.Now().UTC().Add(ttl)
 
-    // 환경변수에서 PUBLIC URL 읽기
-    durl := os.Getenv("CONTROL_PUBLIC_URL")
-    if durl == "" {
-        // 기본값은 로컬 개발 환경용
-        durl = fmt.Sprintf("http://127.0.0.1:%s", os.Getenv("CONTROL_HTTP_PORT"))
-        if durl == "http://127.0.0.1:" { // 포트도 없으면 완전 기본값
-            durl = "http://127.0.0.1:8080"
-        }
-    }
+	// 환경변수에서 PUBLIC URL 읽기
+	durl := os.Getenv("CONTROL_PUBLIC_URL")
+	if durl == "" {
+		// 기본값은 로컬 개발 환경용
+		durl = fmt.Sprintf("http://127.0.0.1:%s", os.Getenv("CONTROL_HTTP_PORT"))
+		if durl == "http://127.0.0.1:" { // 포트도 없으면 완전 기본값
+			durl = "http://127.0.0.1:8080"
+		}
+	}
 
-    ad := taskAd{
-        JobID:     id,
-        Namespace: ns,
-        Topic:     man.Rendezvous,
-         DemandURL: durl,
- Exp:       exp,
-    }
+	ad := taskAd{
+		JobID:     id,
+		Namespace: ns,
+		Topic:     man.Rendezvous,
+		DemandURL: durl,
+		Exp:       exp,
+	}
 
-    if err := d.PutJSON(keyTaskAd(ns, id), ad); err != nil {
-        log.Printf("[announce] failed to put taskAd for %s: %v", id, err)
-    }
+	if err := d.PutJSON(keyTaskAd(ns, id), ad); err != nil {
+		log.Printf("[announce] failed to put taskAd for %s: %v", id, err)
+	}
 
-    m := manifestMirror{
-        Providers: man.Providers,
-        Exp:       exp,
-    }
-    _ = d.PutJSON(keyP2PManifestMirror(id), m)
+	m := manifestMirror{
+		Providers: man.Providers,
+		Exp:       exp,
+	}
+	_ = d.PutJSON(keyP2PManifestMirror(id), m)
 }
-
