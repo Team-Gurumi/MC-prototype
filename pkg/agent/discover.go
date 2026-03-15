@@ -2,10 +2,11 @@ package agent
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
-	"log"
+
 	dhtnode "github.com/Team-Gurumi/MC/internal/dht"
 	task "github.com/Team-Gurumi/MC/internal/task"
 )
@@ -25,13 +26,13 @@ func NewDiscoverer(d *dhtnode.Node, ns string, interval time.Duration) *Discover
 func ListFromIndex(d *dhtnode.Node, ns string) []string {
 	ids := make([]string, 0, 256)
 
-	// 새로 만든 샤드 전부 훑기
+	// Scan all shards
 	for shard := 0; shard < task.TaskIndexShardCount; shard++ {
 		key := task.KeyIndexShard(ns, shard)
 
 		var idx task.TaskIndex
 		if err := d.GetJSON(key, &idx, 3*time.Second); err != nil {
-            // 이 샤드는 아직 없을 수 있으니 그냥 넘어감
+			// This shard may not exist yet; skip it
 			continue
 		}
 
@@ -45,7 +46,6 @@ func ListFromIndex(d *dhtnode.Node, ns string) []string {
 
 	return ids
 }
-
 
 func (dv *Discoverer) readTaskAd(ctx context.Context, id string) (*TaskAd, error) {
 	var ad TaskAd
@@ -69,7 +69,7 @@ func (dv *Discoverer) readManifestMirror(ctx context.Context, id string) (*Manif
 	return &m, nil
 }
 
-// 유효 provider만 추림
+// Filter to valid providers only
 func filterProviders(ps []task.Provider) []task.Provider {
 	out := make([]task.Provider, 0, len(ps))
 	for _, p := range ps {
@@ -94,40 +94,38 @@ func (dv *Discoverer) handleJob(ctx context.Context, id string, onCandidate func
 	if id == "" {
 		return
 	}
-  
-    var st task.TaskState
-    if err := dv.d.GetJSON(task.KeyState(id), &st, 1*time.Second); err == nil {
-        if st.Status != task.StatusQueued {
 
-            return
-        }
-    }
+	var st task.TaskState
+	if err := dv.d.GetJSON(task.KeyState(id), &st, 1*time.Second); err == nil {
+		if st.Status != task.StatusQueued {
 
-    if v, ok := dv.seen.Load(id); ok {
-        if t, ok2 := v.(time.Time); ok2 && time.Since(t) < 500*time.Millisecond {
-            return
-        }
-    }
+			return
+		}
+	}
+
+	if v, ok := dv.seen.Load(id); ok {
+		if t, ok2 := v.(time.Time); ok2 && time.Since(t) < 500*time.Millisecond {
+			return
+		}
+	}
 	ad, err := dv.readTaskAd(ctx, id)
-if err != nil {
-    log.Printf("[agent] skip job=%s: cannot read taskAd: %v", id, err)
-    return
-}
+	if err != nil {
+		log.Printf("[agent] skip job=%s: cannot read taskAd: %v", id, err)
+		return
+	}
 
-	
-	 m, err := dv.readManifestMirror(ctx, id)
-  if err != nil {
-       return
-   }
-   providers := filterProviders(m.Providers)
+	m, err := dv.readManifestMirror(ctx, id)
+	if err != nil {
+		return
+	}
+	providers := filterProviders(m.Providers)
 
- if len(providers) == 0 {
-    onCandidate(id, nil, ad.DemandURL)
-} else {
-    onCandidate(id, providers, ad.DemandURL)
-}
+	if len(providers) == 0 {
+		onCandidate(id, nil, ad.DemandURL)
+	} else {
+		onCandidate(id, providers, ad.DemandURL)
+	}
 
-	
 	dv.seen.Store(id, time.Now())
 }
 

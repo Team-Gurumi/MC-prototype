@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// 패키지 전역 로컬 스토어 (데모/싱글노드 폴백용)
+// Package-level local store (fallback for demo / single-node mode)
 var localStore sync.Map // key(string nsKey) -> []byte
 
-// PutJSON: JSON 직렬화 후 5초 타임아웃으로 Put.
-// 네트워크 PutValue 실패(피어 0 등) 시 localStore로 폴백.
+// PutJSON: marshal to JSON, then Put with 5s timeout.
+// Falls back to localStore when network PutValue fails (e.g. zero peers).
 func (n *Node) PutJSON(key string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -21,7 +21,7 @@ func (n *Node) PutJSON(key string, v any) error {
 	defer cancel()
 
 	if err := n.DHT.PutValue(ctx, n.nsKey(key), b); err != nil {
-		// 싱글노드/피어 없음 → 로컬 저장 폴백
+		// Single node / no peers → local store fallback
 		if strings.Contains(err.Error(), "failed to find any peer in table") {
 			localStore.Store(n.nsKey(key), b)
 			return nil
@@ -31,29 +31,30 @@ func (n *Node) PutJSON(key string, v any) error {
 	return nil
 }
 func (n *Node) DelJSON(key string) error {
-    // 1) 네트워크에는 빈 객체를 tombstone으로 넣는다.
-    if err := n.PutJSON(key, struct{}{}); err != nil {
-        return err
-    }
-    // 2) 로컬 폴백 스토어에도 흔적이 있으면 제거(선택)
-    localStore.Delete(n.nsKey(key))
-    return nil
+	// 1) Write an empty object as a tombstone to the network.
+	if err := n.PutJSON(key, struct{}{}); err != nil {
+		return err
+	}
+	// 2) Also remove from the local fallback store if present.
+	localStore.Delete(n.nsKey(key))
+	return nil
 }
-// GetJSON: 네트워크 GetValue 실패 시 localStore 폴백.
-func (n *Node) GetJSON(key string, out any, timeout time.Duration) error {
-    ctx, cancel := n.withTimeout(timeout)
-    defer cancel()
 
-    var data []byte
-    v, err := n.DHT.GetValue(ctx, n.nsKey(key))
-    if err != nil {
-        if lv, ok := localStore.Load(n.nsKey(key)); ok {
-            data = lv.([]byte)
-        } else {
-            return err
-        }
-   } else {
-        data = v
-    }
-    return json.Unmarshal(data, out)
+// GetJSON: falls back to localStore when network GetValue fails.
+func (n *Node) GetJSON(key string, out any, timeout time.Duration) error {
+	ctx, cancel := n.withTimeout(timeout)
+	defer cancel()
+
+	var data []byte
+	v, err := n.DHT.GetValue(ctx, n.nsKey(key))
+	if err != nil {
+		if lv, ok := localStore.Load(n.nsKey(key)); ok {
+			data = lv.([]byte)
+		} else {
+			return err
+		}
+	} else {
+		data = v
+	}
+	return json.Unmarshal(data, out)
 }

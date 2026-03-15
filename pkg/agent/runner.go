@@ -18,7 +18,7 @@ type RunResult struct {
 }
 
 func RunInContainer(ctx context.Context, workDir string, image string, command []string) (*RunResult, error) {
-	// Docker가 설치되어 있는지 확인
+	// Check if Docker is installed
 	if _, err := exec.LookPath("docker"); err != nil {
 		return nil, fmt.Errorf("docker command not found: %w", err)
 	}
@@ -30,8 +30,8 @@ func RunInContainer(ctx context.Context, workDir string, image string, command [
 
 	args := []string{
 		"run",
-		"--rm",          
-		"-w", "/app",    
+		"--rm",
+		"-w", "/app",
 		"-v", fmt.Sprintf("%s:/app", absWorkDir),
 		image,
 	}
@@ -52,18 +52,18 @@ func RunInContainer(ctx context.Context, workDir string, image string, command [
 		if ee, ok := err.(*exec.ExitError); ok {
 			exit = ee.ExitCode()
 		} else {
-			// docker 실행 자체에 실패한 경우 (예: 이미지 다운로드 실패)
+			// Docker execution itself failed (e.g. image download failure)
 			exit = -1
 		}
 	}
-if exit != 0 {
-        b := errBuf.Bytes()
-        if bytes.Contains(b, []byte("unable to open image")) ||
-            bytes.Contains(b, []byte("no decode delegate for this image format")) {
-            exit = 0
-        }
-    }
-	// 실행 로그를 파일로 저장
+	if exit != 0 {
+		b := errBuf.Bytes()
+		if bytes.Contains(b, []byte("unable to open image")) ||
+			bytes.Contains(b, []byte("no decode delegate for this image format")) {
+			exit = 0
+		}
+	}
+	// Save execution logs to file
 	_ = os.MkdirAll(filepath.Join(workDir, "_logs"), 0o755)
 	_ = os.WriteFile(filepath.Join(workDir, "_logs", "stdout.log"), outBuf.Bytes(), 0o644)
 	_ = os.WriteFile(filepath.Join(workDir, "_logs", "stderr.log"), errBuf.Bytes(), 0o644)
@@ -75,4 +75,3 @@ if exit != 0 {
 		Duration: dur,
 	}, nil
 }
-

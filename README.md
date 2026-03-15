@@ -155,9 +155,15 @@ Mutual Cloud provides the following guarantees:
 ## Installation
 Prerequisites:
 
-- Go
-- A state storage backend
-- Docker (optional)
+- Go 1.24 or later
+- PostgreSQL (used as the authoritative state backend)
+- Docker (optional, required for container-based task execution)
+
+Set up the database schema before first use:
+
+```bash
+psql -f configs/schema.sql <YOUR_POSTGRES_DSN>
+```
 
 Install dependencies and build the binaries:
 
@@ -169,40 +175,41 @@ go build ./cmd/seeder
 ```
 
 ## Running the Control Server
-Set the state backend DSN and start the control server:
+Set the PostgreSQL DSN and start the control server:
 
 ```bash
-export MC_DB_DSN='<STATE_BACKEND_DSN>'
+export MC_DB_DSN='postgres://user:pass@host:5432/dbname?sslmode=disable'
 go build ./cmd/control
 ./control
 ```
 
 Optional flags:
 
-- `--ns` to set the DHT namespace
+- `--ns` to set the DHT namespace (default: `mc`)
 - `--bootstrap` to join an existing DHT overlay
-- `--http-port` to change the control API port
+- `--http-port` to change the control API port (default: `8080`)
+- `--create` to create tasks at startup (comma-separated task IDs)
+- `--image` to set the container image for created tasks (default: `alpine`)
+- `--cmd` to set the command for created tasks (comma-separated, default: `echo,hello`)
 
 ## Running an Agent
 Build and start an execution agent that points to the control server:
 
 ```bash
 go build ./cmd/agent
-./agent --control http://CONTROL_ADDRESS:8080
-```
-
-Equivalent explicit form:
-
-```bash
 ./agent --control-url http://CONTROL_ADDRESS:8080
 ```
 
+`--control` is accepted as a shorthand alias for `--control-url`.
+
 Optional flags:
 
-- `--ns` to match the control server namespace
+- `--ns` to match the control server namespace (default: `default`)
 - `--bootstrap` to join the same DHT overlay
-- `--ttl-sec` to set lease TTL
-- `--heartbeat-sec` to set heartbeat interval
+- `--ttl-sec` to set lease TTL in seconds (default: `15`)
+- `--heartbeat-sec` to set heartbeat interval in seconds (default: `5`)
+- `--discover-every` to set task discovery interval (default: `5s`)
+- `--auth-token` to set the Control API authentication token (can also be set via `CONTROL_TOKEN` env var)
 
 ## Example Multi-node Deployment
 One control node and multiple agent nodes can share the same namespace and bootstrap overlay.
@@ -222,6 +229,10 @@ go build ./cmd/seeder
 ./seeder --ns mc --bootstrap <CONTROL_BOOTSTRAP_MULTIADDR>
 ```
 
+Optional seeder flags:
+
+- `--base` to set the directory to seed files from (default: `./inputs`)
+
 Agent node A:
 
 ```bash
@@ -239,23 +250,29 @@ go build ./cmd/agent
 With this layout, multiple agents can attach to the same control server while discovering and competing for work through shared DHT metadata and lease arbitration.
 
 ## Repository Layout
-```mermaid
+```
 cmd/
-  control/    control server entrypoint
-  agent/      execution agent entrypoint
-  seeder/     P2P artifact seeder entrypoint
+  control/      control server entrypoint
+  agent/        execution agent entrypoint
+  seeder/       P2P artifact seeder entrypoint
 
 internal/
-  task/       task metadata, indexing, task state, lease keys
-  lease/      lease store and authoritative state management
-  dht/        DHT node and JSON storage helpers
-  heartbeat/  heartbeat-related constants
+  task/         task metadata, indexing, task state, lease keys
+  lease/        lease store and authoritative state management
+  dht/          DHT node and JSON storage helpers
+  heartbeat/    heartbeat-related constants
 
 pkg/
-  agent/      agent-side runtime helpers
-  p2p/        P2P protocol definitions
-  seeder/     seeder-side runtime helpers
+  agent/        agent-side runtime helpers
+  p2p/          P2P protocol definitions
+  seeder/       seeder-side runtime helpers
 
 configs/
+  schema.sql    PostgreSQL schema for the demand_jobs table
+
+docs/
+  architecture.mmd   Mermaid source for the architecture diagram
+
 scripts/
+Makefile              remote build and deployment helpers
 ```
