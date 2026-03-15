@@ -51,25 +51,25 @@ func (m *AnnounceManager) Enqueue(id string) {
 }
 
 func (m *AnnounceManager) announceOnce(ctx context.Context, id string) {
-	// 1) DHT에서 manifest를 읽어본다
+	// 1) Try reading the manifest from DHT
 	var man task.Manifest
 	err := m.d.GetJSON(task.KeyManifest(id), &man, 2*time.Second)
 
-	// 2) 없으면 placeholder 만들어서 DHT에 써둔다
+	// 2) If not found, create a placeholder and write it to DHT
 	if err != nil || man.RootCID == "" {
 		man = task.Manifest{
 			RootCID:   "noop",
 			Version:   1,
 			UpdatedAt: time.Now().UTC(),
 		}
-		// 에이전트가 /task/<id>/manifest 를 꼭 찾으니까 여기서 써주는 게 중요
+		// Important: agents expect to find /task/<id>/manifest in DHT
 		_ = m.d.PutJSON(task.KeyManifest(id), man)
 	}
 
-	// 3) 실제 광고
+	// 3) Publish advertisement
 	announceAds(ctx, m.d, m.ns, id, &man, m.ttl)
 
-	// 4) 광고한 시간 기록
+	// 4) Record advertisement timestamp
 	m.mu.Lock()
 	m.last[id] = time.Now().UTC()
 	m.mu.Unlock()
@@ -89,17 +89,18 @@ func (m *AnnounceManager) Run(ctx context.Context) {
 				ids = append(ids, id)
 			}
 		}
-		// 처리할 것들은 dirty에서 빼줘야 함, 아니면 계속 쌓임
-		// (원래 코드에서는 dirty를 제거하는 로직이 없었음 -> 하지만 원래는 Enqueue할 때마다 announceOnce했으므로 dirty가 그냥 '최근에 요청된 것' 의미였을 수 있음)
-		// 하지만 'announceOnce'는 state를 변경하지 않음.
-		// 여기서는 dirtyMap에 있는 것 중 interval 지난 것을 처리함.
-		// 처리 후 dirty에서 제거해야 하나?
-		// 원래 로직: ticker 돌 때 dirty에 있는 것 중 interval 지난 것 다시 announce.
-		// 근데 dirty에서 언제 제거되지? 원래 코드에선 제거 로직이 없음 -> 메모리 릭??
-		// 아뇨, dirty는 map[string]struct{}입니다. id가 계속 쌓이면 메모리 릭 맞습니다.
-		// 하지만 여기선 "minimal patch"를 요구했으므로, unbounded goroutine만 고칩니다.
-		// "dirty"의 의미: "재광고가 필요한 후보군 + 최초 광고 요청"
-		// 일단 기존 로직(dirty 순회)을 그대로 유지하되, goroutine spawn만 막습니다.
+		// Items to process must be removed from dirty, otherwise they accumulate
+		// (Original code had no removal logic -> but originally announceOnce was called
+		// per Enqueue, so dirty just meant 'recently requested'.)
+		// However, announceOnce does not change state.
+		// Here we process items in dirtyMap whose interval has elapsed.
+		// Should we remove them from dirty after processing?
+		// Original logic: on tick, re-announce items in dirty whose interval has passed.
+		// But when are they removed from dirty? Original code has no removal -> memory leak??
+		// Yes, dirty is a map[string]struct{}. If IDs keep accumulating, it is a memory leak.
+		// But a "minimal patch" was requested, so only unbounded goroutine spawning is fixed.
+		// Meaning of "dirty": "candidates for re-advertisement + initial advertisement request"
+		// Keep existing logic (dirty iteration) as-is, only prevent goroutine spawning.
 		m.mu.Unlock()
 
 		for _, id := range ids {
@@ -202,7 +203,7 @@ func requeueLoop(ctx context.Context, store lease.Store, d *dhtnode.Node, ns str
 		case <-ticker.C:
 			now := time.Now().UTC()
 
-			// 만료된 지 3초 이상 지난 작업만 재큐잉한다
+			// Only requeue tasks whose leases expired at least 3 seconds ago
 			expired, err := store.ListExpiredLeases(ctx, now.Add(-3*time.Second))
 			if err != nil {
 				log.Printf("[requeue] list expired failed: %v", err)
@@ -217,7 +218,7 @@ func requeueLoop(ctx context.Context, store lease.Store, d *dhtnode.Node, ns str
 				log.Printf(`{"event":"lease_expired","timestamp":"%s","job_id":"%s"}`,
 					time.Now().UTC().Format(time.RFC3339Nano), id)
 
-				// DHT에 있는 lease/state도 정리
+				// Also clean up lease/state in DHT
 				_ = d.DelJSON(task.KeyLease(id))
 				updateDHTStateQueued(d, id, now)
 				mgr.Enqueue(id)
@@ -226,9 +227,9 @@ func requeueLoop(ctx context.Context, store lease.Store, d *dhtnode.Node, ns str
 	}
 }
 
-// DB에 queued로만 남아 있는 잡들을 주기적으로 다시 DHT에 광고
+// Periodically re-advertise jobs that are still queued in the DB
 func reannounceQueuedLoop(ctx context.Context, store lease.Store, mgr *AnnounceManager) {
-	ticker := time.NewTicker(5 * time.Second) // 주기는 필요하면 줄여
+	ticker := time.NewTicker(5 * time.Second) // reduce interval if needed
 	defer ticker.Stop()
 
 	for {
@@ -236,14 +237,14 @@ func reannounceQueuedLoop(ctx context.Context, store lease.Store, mgr *AnnounceM
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// DB에서 아직 queued인 애들 전부 가져옴
+			// Fetch all still-queued jobs from DB
 			jobs, err := store.ListQueued(ctx)
 			if err != nil {
 				log.Printf("[reannounce] list queued failed: %v", err)
 				continue
 			}
 			for _, j := range jobs {
-				// 그냥 다시 광고 큐에 넣어주면 AnnounceManager가 DHT에 다시 올림
+				// Just re-enqueue; AnnounceManager will re-advertise on DHT
 				mgr.Enqueue(j.ID)
 			}
 		}
@@ -362,7 +363,7 @@ func main() {
 				CreatedAt: time.Now().UTC(),
 			})
 
-			// ★ 여기서도 즉시 광고
+			// Also advertise immediately
 			mgr.Enqueue(id)
 		}
 	}

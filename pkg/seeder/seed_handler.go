@@ -15,12 +15,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 )
 
-// 파일 소스 인터페이스: rootCID로 파일을 연다.
+// Source interface: opens a file by rootCID.
 type Source interface {
 	Open(rootCID string) (io.ReadCloser, int64, error)
 }
 
-// 로컬 디렉터리에서 rootCID 이름의 파일을 연다.
+// Opens a file named after rootCID in the local directory.
 type SourceFS struct{ Base string }
 
 func (s SourceFS) Open(cid string) (io.ReadCloser, int64, error) {
@@ -33,12 +33,12 @@ func (s SourceFS) Open(cid string) (io.ReadCloser, int64, error) {
 	return f, st.Size(), nil
 }
 
-// libp2p 스트림 핸들러 등록: JSON 요청을 받고 파일 바이트를 그대로 전송.
+// Register a libp2p stream handler: receive a JSON request, send file bytes directly.
 func MountSeedHandler(ctx context.Context, n *dhtnode.Node, src Source) {
 	n.Host.SetStreamHandler(p2p.ProtoGet, func(s network.Stream) {
 		defer s.Close()
 
-		// 1) JSON 요청 읽기
+		// 1) Read JSON request
 		var req struct {
 			RootCID string `json:"root_cid"`
 		}
@@ -51,7 +51,7 @@ func MountSeedHandler(ctx context.Context, n *dhtnode.Node, src Source) {
 			return
 		}
 
-		// 2) 파일 열기
+		// 2) Open file
 		rc, size, err := src.Open(req.RootCID)
 		if err != nil {
 			log.Printf("[seeder] open %s: %v", req.RootCID, err)
@@ -59,7 +59,7 @@ func MountSeedHandler(ctx context.Context, n *dhtnode.Node, src Source) {
 		}
 		defer rc.Close()
 
-		// 3) 파일 바디 스트리밍
+		// 3) Stream file body
 		bw := bufio.NewWriter(s)
 		written, err := io.Copy(bw, rc)
 		if err != nil {

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// DB(=Demand)가 관리하는 잡 상태
+// Job status managed by the DB (Demand store)
 type JobStatus string
 
 const (
@@ -16,17 +16,16 @@ const (
 	StatusFailed    JobStatus = "failed"
 )
 
-
 type DBJob struct {
-	ID        string
-	Image     string
-	Command   []string
-	Status    JobStatus
-	CreatedAt time.Time
+	ID         string
+	Image      string
+	Command    []string
+	Status     JobStatus
+	CreatedAt  time.Time
 	RetryCount int
 }
 
-// manifest 정보
+// Manifest information
 type Manifest struct {
 	RootCID   string
 	Providers []string
@@ -39,7 +38,7 @@ type Lease struct {
 	FencingToken uint64
 }
 
-// Control / Agent 가 공통으로 기대하는 저장소 인터페이스
+// Store interface shared by Control and Agent
 type Store interface {
 	// /api/tasks
 	CreateJob(ctx context.Context, job DBJob) error
@@ -67,22 +66,20 @@ type Store interface {
 		metrics any,
 	) error
 
-	// 재큐잉 루프용
+	// For the requeue loop
 	ListExpiredLeases(ctx context.Context, now time.Time) ([]string, error)
 	SetStatusQueued(ctx context.Context, id string) error
-	 // 컨트롤이 재기동할 때 queued 잡들을 다시 광고하려고 쓴다
-    ListQueued(ctx context.Context) ([]DBJob, error)
-    ListManifestMissingSince(ctx context.Context, cutoff time.Time) ([]string, error)
-    ListAll(ctx context.Context) ([]DBJob, error)
-    
+	// Used to re-advertise queued jobs when the control server restarts
+	ListQueued(ctx context.Context) ([]DBJob, error)
+	ListManifestMissingSince(ctx context.Context, cutoff time.Time) ([]string, error)
+	ListAll(ctx context.Context) ([]DBJob, error)
 
 	ListPaged(ctx context.Context, limit, offset int) ([]DBJob, error)
 
 	CountByStatus(ctx context.Context) (map[JobStatus]int64, error)
-
 }
 
-// 공통 에러
+// Common errors
 var (
 	ErrJobNotFound   = Err("job not found")
 	ErrNoManifest    = Err("manifest not attached")
@@ -93,4 +90,3 @@ var (
 type Err string
 
 func (e Err) Error() string { return string(e) }
-

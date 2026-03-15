@@ -16,31 +16,31 @@ import (
 )
 
 func main() {
-	ns := flag.String("ns", "default", "네임스페이스")
-	discEvery := flag.Duration("discover-every", 5*time.Second, "작업 발견 주기")
-	bootstrapPeers := flag.String("bootstrap", "", "컴마로 구분된 부트스트랩 피어 목록")
+	ns := flag.String("ns", "default", "namespace")
+	discEvery := flag.Duration("discover-every", 5*time.Second, "task discovery interval")
+	bootstrapPeers := flag.String("bootstrap", "", "comma-separated bootstrap peer list")
 
-	controlURL := flag.String("control-url", "http://127.0.0.1:8080", "Control API 기본 URL")
+	controlURL := flag.String("control-url", "http://127.0.0.1:8080", "Control API base URL")
 	controlAlias := flag.String("control", "", "alias for -control-url")
-	authToken := flag.String("auth-token", "", "Control API 인증 토큰")
-	ttlSec := flag.Int("ttl-sec", 15, "lease TTL seconds (권장: 15)")
-	hbSec := flag.Int("heartbeat-sec", 5, "heartbeat interval seconds (권장: 5)")
+	authToken := flag.String("auth-token", "", "Control API auth token")
+	ttlSec := flag.Int("ttl-sec", 15, "lease TTL seconds (recommended: 15)")
+	hbSec := flag.Int("heartbeat-sec", 5, "heartbeat interval seconds (recommended: 5)")
 	flag.Parse()
 	if *controlAlias != "" {
 		*controlURL = *controlAlias
 	}
 
-	// 메인 컨텍스트
+	// Main context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// DHT 노드
+	// DHT node
 	d, err := initDHTNode(ctx, *ns, *bootstrapPeers)
 	if err != nil {
-		log.Fatalf("DHT 노드 초기화 실패: %v", err)
+		log.Fatalf("DHT node init failed: %v", err)
 	}
 
-	// 토큰
+	// Token
 	var token string
 	if *authToken != "" {
 		token = *authToken
@@ -48,7 +48,7 @@ func main() {
 		token = os.Getenv("CONTROL_TOKEN")
 	}
 
-	// TTL/하트비트 보정
+	// TTL / heartbeat correction
 	leaseTTL := time.Duration(*ttlSec) * time.Second
 	hbEvery := time.Duration(*hbSec) * time.Second
 	if hbEvery >= leaseTTL {
@@ -61,7 +61,7 @@ func main() {
 
 	log.Printf("[agent] config: TTL=%s heartbeat=%s (flags: -ttl-sec=%d -heartbeat-sec=%d)", leaseTTL, hbEvery, *ttlSec, *hbSec)
 
-	// 컨트롤과 통신할 클라이언트들
+	// Clients for communicating with the control server
 	claim := &agent.HTTPClaimClient{
 		BaseURL: *controlURL,
 		Client:  &http.Client{Timeout: 5 * time.Second},
@@ -103,19 +103,19 @@ func main() {
 		} else {
 			log.Printf("[agent] manifest wait timeout for job=%s: %v", jobID, err)
 		}
-		log.Printf("[agent] 작업 점유 성공 job=%s ver=%d exp=%s",
+		log.Printf("[agent] lease acquired job=%s ver=%d exp=%s",
 			jobID, lease.Version, lease.Expires.Format(time.RFC3339))
 		log.Printf(`{"event":"lease_acquired","timestamp":"%s","job_id":"%s","agent_id":"%s"}`,
 			time.Now().UTC().Format(time.RFC3339Nano), jobID, agentID)
 
 		leaseToken := lease.Version
 
-		// 이 job만을 위한 컨텍스트
+		// Job-specific context
 		jobCtx, cancelJob := context.WithCancel(context.Background())
 
-		// 2) 하트비트 고루틴
+		// 2) Heartbeat goroutine
 		go func(taskID, nonce string, leaseTok int64) {
-			defer log.Printf("[agent] job=%s heartbeat 종료", taskID)
+			defer log.Printf("[agent] job=%s heartbeat stopped", taskID)
 
 			t := time.NewTicker(hbEvery)
 			defer t.Stop()
@@ -140,7 +140,7 @@ func main() {
 			}
 		}(jobID, lease.Nonce, leaseToken)
 
-		// 3) manifest 확인
+		// 3) Check manifest
 		var man task.Manifest
 		if err := d.GetJSON(task.KeyManifest(jobID), &man, 3*time.Second); err != nil || man.RootCID == "" {
 			_ = finish.Report(
@@ -161,7 +161,7 @@ func main() {
 			return
 		}
 
-		// 3.5) meta도 읽어와야 run 가능
+		// 3.5) Also need to read meta for execution
 		var meta task.TaskMeta
 		if err := d.GetJSON(task.KeyMeta(jobID), &meta, 3*time.Second); err != nil {
 			_ = finish.Report(
@@ -181,7 +181,7 @@ func main() {
 			return
 		}
 
-		// 4) 입력 fetch
+		// 4) Fetch inputs
 		workDir := "./work/" + jobID
 		_ = os.MkdirAll(workDir, 0o755)
 		inputDir := filepath.Join(workDir, "input")
@@ -207,10 +207,10 @@ func main() {
 			}
 		}
 
-		// 5) 실행
+		// 5) Execute
 		res, runErr := agent.RunInContainer(jobCtx, workDir, meta.Image, meta.Command)
 
-		// 하트비트 종료
+		// Stop heartbeat
 		cancelJob()
 
 		status := "succeeded"
@@ -232,9 +232,9 @@ func main() {
 			}
 		}
 
-		// 6) 종료 보고 (재시도 포함)
-		const maxFinishRetries = 20              // 최대 시도 횟수
-		const finishRetryDelay = 5 * time.Second // 각 시도 간격
+		// 6) Finish report (with retries)
+		const maxFinishRetries = 20              // max retry attempts
+		const finishRetryDelay = 5 * time.Second // delay between each attempt
 
 		var lastErr error
 		for attempt := 1; attempt <= maxFinishRetries; attempt++ {
@@ -271,10 +271,10 @@ func main() {
 
 	}
 
-	// discoverer 실행
+	// Run discoverer
 	go dv.Run(ctx, listIDs, onCandidate)
 
-	// 대기
+	// Wait
 	<-ctx.Done()
 }
 
@@ -293,9 +293,9 @@ func initDHTNode(ctx context.Context, ns, bootstrapPeers string) (*dhtnode.Node,
 		return nil, err
 	}
 
-	log.Printf("[agent] P2P 노드 시작됨: %s", node.Host.ID())
+	log.Printf("[agent] P2P node started: %s", node.Host.ID())
 	for _, a := range node.Multiaddrs() {
-		log.Printf("[agent] 리스닝 주소: %s", a)
+		log.Printf("[agent] listening on: %s", a)
 	}
 	return node, nil
 }

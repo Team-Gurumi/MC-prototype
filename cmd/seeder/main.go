@@ -21,7 +21,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 부트스트랩 목록 파싱
+	// Parse bootstrap peer list
 	var boots []string
 	if *bootstrap != "" {
 		for _, s := range strings.Split(*bootstrap, ",") {
@@ -32,20 +32,20 @@ func main() {
 		}
 	}
 
-	// DHT/libp2p 노드 시작
+	// Start DHT/libp2p node
 	node, err := dhtnode.NewNode(ctx, *ns, boots)
 	if err != nil {
 		log.Fatalf("[seeder] failed to create node: %v", err)
 	}
 	defer node.Close()
 
-	// 파일 소스: inputs/ 아래에 root_cid와 동일한 파일명을 찾음
+	// File source: finds files named by root_cid under inputs/
 	src := seeder.SourceFS{Base: *baseDir}
 
-	// P2P 핸들러 등록 (/mc-get/1.0.0)
+	// Register P2P handler (/mc-get/1.0.0)
 	seeder.MountSeedHandler(ctx, node, src)
 
-	// 정보 출력
+	// Print info
 	fmt.Println("[seeder] PeerID:", node.Host.ID())
 	for _, a := range node.Multiaddrs() {
 		fmt.Println("[seeder] addr:", a)
@@ -53,7 +53,7 @@ func main() {
 	fmt.Printf("[seeder] serving files under %s (name == root_cid)\n", *baseDir)
 	fmt.Println("[seeder] register this PeerID/addr in providers[] when posting manifest")
 
-	// 유지
+	// Keep alive
 	t := time.NewTicker(5 * time.Minute)
 	defer t.Stop()
 	for {

@@ -10,7 +10,6 @@ import (
 	dhtnode "github.com/Team-Gurumi/MC/internal/dht"
 )
 
-
 var (
 	ErrLeaseBusy   = errors.New("lease busy")
 	ErrLeaseStolen = errors.New("lease stolen by another peer")
@@ -24,7 +23,7 @@ func randNonce() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Claim: 리스가 없거나 만료된 경우에만 내가 선점
+// Claim: preempt only if no lease exists or the existing lease has expired
 func Claim(d *dhtnode.Node, taskID, myPeer string, ttl time.Duration) (string, error) {
 	if ttl <= 0 {
 		ttl = DefaultLeaseTTL
@@ -38,12 +37,12 @@ func Claim(d *dhtnode.Node, taskID, myPeer string, ttl time.Duration) (string, e
 		var old Lease
 		if len(prev) > 0 {
 			if err := json.Unmarshal(prev, &old); err != nil {
-				// 깨진 값이면 새로 쓰도록 한다
+				// Corrupted value; overwrite with a new lease
 				old = Lease{}
 			}
 		}
 
-		// 이전 리스가 아직 살아 있으면 점유 중
+		// Previous lease is still alive; task is occupied
 		if old.Owner != "" && !old.Expires.IsZero() && old.Expires.After(now) {
 			return false, nil, ErrLeaseBusy
 		}
@@ -52,7 +51,7 @@ func Claim(d *dhtnode.Node, taskID, myPeer string, ttl time.Duration) (string, e
 			Owner:   myPeer,
 			Nonce:   nonce,
 			Expires: now.Add(ttl),
-			Version: old.Version + 1, // 펜싱 토큰
+			Version: old.Version + 1, // fencing token
 		}
 		next, err := json.Marshal(newL)
 		if err != nil {
@@ -67,7 +66,7 @@ func Claim(d *dhtnode.Node, taskID, myPeer string, ttl time.Duration) (string, e
 	return nonce, nil
 }
 
-// Heartbeat: 내가 점유 중일 때만 연장
+// Heartbeat: extend lease only if I am the current owner
 func Heartbeat(d *dhtnode.Node, taskID, myPeer, myNonce string, ttl time.Duration) error {
 	if ttl <= 0 {
 		ttl = DefaultLeaseTTL
@@ -78,19 +77,18 @@ func Heartbeat(d *dhtnode.Node, taskID, myPeer, myNonce string, ttl time.Duratio
 
 		var cur Lease
 		if len(prev) == 0 {
-			// 리스가 없으면 갱신 안 함
+			// No lease exists; nothing to renew
 			return false, nil, nil
 		}
 		if err := json.Unmarshal(prev, &cur); err != nil {
 			return false, nil, err
 		}
 
-		// 내 리스가 아니면 연장 금지
+		// Not my lease; extension denied
 		if cur.Owner != myPeer || cur.Nonce != myNonce {
 			return false, nil, ErrLeaseStolen
 		}
 
-	
 		cur.Expires = now.Add(ttl)
 		cur.Version++
 
@@ -99,7 +97,7 @@ func Heartbeat(d *dhtnode.Node, taskID, myPeer, myNonce string, ttl time.Duratio
 	})
 }
 
-// Release: 내가 가진 리스를 의도적으로 내려놓기
+// Release: intentionally relinquish a lease I own
 func Release(d *dhtnode.Node, taskID, myPeer, myNonce string) error {
 	key := KeyLease(taskID)
 	return d.PutJSONCAS(key, func(prev []byte) (bool, []byte, error) {
@@ -123,4 +121,3 @@ func Release(d *dhtnode.Node, taskID, myPeer, myNonce string) error {
 		return true, next, nil
 	})
 }
-

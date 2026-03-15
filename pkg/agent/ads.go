@@ -6,7 +6,7 @@ import (
 	task "github.com/Team-Gurumi/MC/internal/task"
 )
 
-// Control이 DHT에 올리는 광고 페이로드와 동일해야 함
+// Must match the advertisement payload that Control publishes to the DHT
 type TaskAd struct {
 	JobID     string    `json:"job_id"`
 	Namespace string    `json:"ns,omitempty"`
@@ -24,6 +24,6 @@ type ManifestAd struct {
 	Exp        time.Time       `json:"exp"`
 }
 
-// DHT 키 규약(컨트롤과 동일)
+// DHT key convention (same as control server)
 func KeyTaskAd(ns, id string) string        { return "ad/" + ns + "/task/" + id }
 func KeyP2PManifestMirror(id string) string { return "p2p/" + id + "/manifest" }

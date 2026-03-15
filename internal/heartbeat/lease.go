@@ -2,9 +2,7 @@ package heartbeat
 
 import "time"
 
-
-
-// TTL/하트비트 간격
+// TTL / heartbeat interval
 const (
-DefaultHeartbeatGap = 7 * time.Second
+	DefaultHeartbeatGap = 7 * time.Second
 )
