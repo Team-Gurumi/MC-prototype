@@ -6,7 +6,6 @@ Mutual Cloud is a decentralized orchestration framework for distributed task exe
 This repository is the cleaned prototype layout used to reflect the architecture described in the research paper. Experimental artifacts and evaluation code have been removed. The remaining code focuses on the runtime prototype only.
 
 ## Architecture Overview
-![Mutual Cloud Architecture](docs/architecture.png)
 
 ```mermaid
 graph TD
