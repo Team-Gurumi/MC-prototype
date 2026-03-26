@@ -1,9 +1,7 @@
 # Mutual Cloud Prototype
 
 ## Project Overview
-Mutual Cloud is a decentralized orchestration framework for distributed task execution. Instead of relying on a logically centralized scheduler, Mutual Cloud combines a control server, execution agents, a distributed hash table, lease-based execution ownership, and heartbeat-driven failure detection to coordinate task execution across multiple nodes.
-
-This repository is the cleaned prototype layout used to reflect the architecture described in the research paper. Experimental artifacts and evaluation code have been removed. The remaining code focuses on the runtime prototype only.
+Mutual Cloud is a decentralized orchestration framework for distributed task execution. Instead of relying on a logically centralized scheduler, Mutual Cloud combines a control server, execution agents, a distributed hash table, lease-based execution ownership, and heartbeat-driven failure detection to coordinate task execution across multiple nodes. This repository is the cleaned prototype layout used to reflect the architecture described in the research paper. 
 
 ## Architecture Overview
 
