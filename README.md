@@ -1,7 +1,9 @@
 # Mutual Cloud Prototype
 
 ## Project Overview
-Mutual Cloud is a decentralized orchestration framework for distributed task execution. Instead of relying on a logically centralized scheduler, Mutual Cloud combines a control server, execution agents, a distributed hash table, lease-based execution ownership, and heartbeat-driven failure detection to coordinate task execution across multiple nodes. This repository is the cleaned prototype layout used to reflect the architecture described in the research paper. 
+Mutual Cloud is a decentralized orchestration framework for distributed task execution. Instead of relying on a logically centralized scheduler, Mutual Cloud combines a control server, execution agents, a distributed hash table, lease-based execution ownership, and heartbeat-driven failure detection to coordinate task execution across multiple nodes. This repository is the cleaned prototype layout used to reflect the architecture described in the research paper.  
+
+**Security Extension:** A Trusted Execution Environment (TEE) module based on Intel SGX, designed to be compatible with Mutual Cloud, is provided separately at: https://github.com/oslab-ewha/enclave_base.
 
 ## Architecture Overview
 
